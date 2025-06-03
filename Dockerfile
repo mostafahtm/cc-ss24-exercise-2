@@ -10,8 +10,8 @@ RUN go mod download
 # Copy the source code into the container
 COPY . .
 
-# Build the Go application (specify the correct path to main.go)
-RUN go build -o main ./cmd
+# Force GOOS=linux and GOARCH=amd64 to produce a Linux-compatible binary
+RUN GOOS=linux GOARCH=amd64 go build -o main ./cmd
 
 # Stage 2: Run the application
 FROM debian:bookworm-slim
