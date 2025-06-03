@@ -7,10 +7,9 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"os"
 	"slices"
 	"time"
-
+	"os"
 	"github.com/labstack/echo/v4"
 	"github.com/labstack/echo/v4/middleware"
 	"go.mongodb.org/mongo-driver/bson"
@@ -22,14 +21,17 @@ import (
 
 // Defines a "model" that we can use to communicate with the
 // frontend or the database
+// More on these "tags" like `bson:"_id,omitempty"`: https://go.dev/wiki/Well-known-struct-tags
 type BookStore struct {
-	ID         primitive.ObjectID `bson:"_id,omitempty"`
-	BookName   string
-	BookAuthor string
-	BookISBN   string
-	BookPages  int
-	BookYear   int
+	MongoID     primitive.ObjectID `bson:"_id,omitempty" json:"-"`
+	ID          string             `bson:"ID" json:"id"`
+	BookName    string             `bson:"BookName" json:"title"`
+	BookAuthor  string             `bson:"BookAuthor" json:"author"`
+	BookEdition string             `bson:"BookEdition,omitempty" json:"edition,omitempty"`
+	BookPages   string             `bson:"BookPages,omitempty" json:"pages,omitempty"`
+	BookYear    string             `bson:"BookYear,omitempty" json:"year,omitempty"`
 }
+
 
 // Wraps the "Template" struct to associate a necessary method
 // to determine the rendering procedure
@@ -95,25 +97,28 @@ func prepareDatabase(client *mongo.Client, dbName string, collecName string) (*m
 func prepareData(client *mongo.Client, coll *mongo.Collection) {
 	startData := []BookStore{
 		{
-			BookName:   "The Vortex",
-			BookAuthor: "José Eustasio Rivera",
-			BookISBN:   "958-30-0804-4",
-			BookPages:  292,
-			BookYear:   1924,
+			ID:          "example1",
+			BookName:    "The Vortex",
+			BookAuthor:  "José Eustasio Rivera",
+			BookEdition: "958-30-0804-4",
+			BookPages:   "292",
+			BookYear:    "1924",
 		},
 		{
-			BookName:   "Frankenstein",
-			BookAuthor: "Mary Shelley",
-			BookISBN:   "978-3-649-64609-9",
-			BookPages:  280,
-			BookYear:   1818,
+			ID:          "example2",
+			BookName:    "Frankenstein",
+			BookAuthor:  "Mary Shelley",
+			BookEdition: "978-3-649-64609-9",
+			BookPages:   "280",
+			BookYear:    "1818",
 		},
 		{
-			BookName:   "The Black Cat",
-			BookAuthor: "Edgar Allan Poe",
-			BookISBN:   "978-3-99168-238-7",
-			BookPages:  280,
-			BookYear:   1843,
+			ID:          "example3",
+			BookName:    "The Black Cat",
+			BookAuthor:  "Edgar Allan Poe",
+			BookEdition: "978-3-99168-238-7",
+			BookPages:   "280",
+			BookYear:    "1843",
 		},
 	}
 
@@ -163,15 +168,79 @@ func findAllBooks(coll *mongo.Collection) []map[string]interface{} {
 	var ret []map[string]interface{}
 	for _, res := range results {
 		ret = append(ret, map[string]interface{}{
-			"ID":         res.ID.Hex(),
-			"BookName":   res.BookName,
-			"BookAuthor": res.BookAuthor,
-			"BookISBN":   res.BookISBN,
-			"BookPages":  res.BookPages,
+			"id":          res.ID,
+			"title":    res.BookName,
+			"author":  res.BookAuthor,
+			"pages":   res.BookPages,
+			"edition": res.BookEdition,
+			"year":   res.BookYear,
 		})
 	}
 
 	return ret
+}
+
+// New structs for authors and years views
+type AuthorView struct {
+	Author string
+	Books  []string
+}
+
+type YearView struct {
+	Year  string
+	Books []BookStore
+}
+
+// Function to get all unique authors and their books
+func findAllAuthors(coll *mongo.Collection) []AuthorView {
+	cursor, err := coll.Find(context.TODO(), bson.D{{}})
+	var results []BookStore
+	if err = cursor.All(context.TODO(), &results); err != nil {
+		panic(err)
+	}
+
+	// Create a map to group books by author
+	authorMap := make(map[string][]string)
+	for _, book := range results {
+		authorMap[book.BookAuthor] = append(authorMap[book.BookAuthor], book.BookName)
+	}
+
+	// Convert map to slice of AuthorView
+	var authors []AuthorView
+	for author, books := range authorMap {
+		authors = append(authors, AuthorView{
+			Author: author,
+			Books:  books,
+		})
+	}
+
+	return authors
+}
+
+// Function to get all books grouped by year
+func findAllYears(coll *mongo.Collection) []YearView {
+	cursor, err := coll.Find(context.TODO(), bson.D{{}})
+	var results []BookStore
+	if err = cursor.All(context.TODO(), &results); err != nil {
+		panic(err)
+	}
+
+	// Create a map to group books by year
+	yearMap := make(map[string][]BookStore)
+	for _, book := range results {
+		yearMap[book.BookYear] = append(yearMap[book.BookYear], book)
+	}
+
+	// Convert map to slice of YearView
+	var years []YearView
+	for year, books := range yearMap {
+		years = append(years, YearView{
+			Year:  year,
+			Books: books,
+		})
+	}
+
+	return years
 }
 
 func main() {
@@ -190,6 +259,7 @@ func main() {
 
 	// TODO: make sure to pass the proper username, password, and port
 	client, err := mongo.Connect(ctx, options.Client().ApplyURI(uri))
+
 	if err != nil {
 		fmt.Printf("failed to create client for MongoDB\n")
 		os.Exit(1)
@@ -241,11 +311,13 @@ func main() {
 	})
 
 	e.GET("/authors", func(c echo.Context) error {
-		return c.NoContent(http.StatusNoContent)
+		authors := findAllAuthors(coll)
+		return c.Render(200, "authors", authors)
 	})
 
 	e.GET("/years", func(c echo.Context) error {
-		return c.NoContent(http.StatusNoContent)
+		years := findAllYears(coll)
+		return c.Render(200, "years", years)
 	})
 
 	e.GET("/search", func(c echo.Context) error {
@@ -256,10 +328,102 @@ func main() {
 		return c.NoContent(http.StatusNoContent)
 	})
 
+	// You will have to expand on the allowed methods for the path
+	// `/api/route`, following the common standard.
+	// A very good documentation is found here:
+	// https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Methods
+	// It specifies the expected returned codes for each type of request
+	// method.
 	e.GET("/api/books", func(c echo.Context) error {
 		books := findAllBooks(coll)
 		return c.JSON(http.StatusOK, books)
 	})
 
+	// POST new book
+	e.POST("/api/books", func(c echo.Context) error {
+		var newBook BookStore
+		if err := c.Bind(&newBook); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		// Check for duplicates
+		cursor, err := coll.Find(context.TODO(), bson.M{
+			"ID":      	   newBook.ID,
+		})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database error"})
+		}
+
+		var existingBooks []BookStore
+		if err = cursor.All(context.TODO(), &existingBooks); err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Database error"})
+		}
+
+		if len(existingBooks) > 0 {
+			return c.JSON(http.StatusOK, map[string]string{"message": "Duplicate book entry, not inserted"})
+		}		
+
+		// Insert new book
+		_, err = coll.InsertOne(context.TODO(), newBook)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to insert book"})
+		}
+
+		return c.JSON(http.StatusCreated, newBook)
+	})
+ 
+
+	// UPDATE book
+	e.PUT("/api/books/:id", func(c echo.Context) error {
+		id := c.Param("id")
+		var updatedBook BookStore
+		if err := c.Bind(&updatedBook); err != nil {
+			return c.JSON(http.StatusBadRequest, map[string]string{"error": "Invalid request body"})
+		}
+
+		// Update book
+		filter := bson.M{"ID": id}
+		update := bson.M{"$set": bson.M{
+			"title":    updatedBook.BookName,
+			"author":  updatedBook.BookAuthor,
+			"edition": updatedBook.BookEdition,
+			"pages":   updatedBook.BookPages,
+			"year":    updatedBook.BookYear,
+		}}
+
+		result, err := coll.UpdateOne(context.TODO(), filter, update)
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to update book"})
+		}
+
+		if result.MatchedCount == 0 {
+			return c.NoContent(http.StatusNoContent)
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "Book updated successfully"})
+	})
+
+	// DELETE book
+	e.DELETE("/api/books/:id", func(c echo.Context) error {
+		id := c.Param("id")
+		
+		result, err := coll.DeleteOne(context.TODO(), bson.M{"ID": id})
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{"error": "Failed to delete book"})
+		}
+
+		if result.DeletedCount == 0 {
+			return c.NoContent(http.StatusNoContent)
+		}
+
+		return c.JSON(http.StatusOK, map[string]string{"message": "Book deleted successfully"})
+	})
+
+	// We start the server and bind it to port 3030. For future references, this
+	// is the application's port and not the external one. For this first exercise,
+	// they could be the same if you use a Cloud Provider. If you use ngrok or similar,
+	// they might differ.
+	// In the submission website for this exercise, you will have to provide the internet-reachable
+	// endpoint: http://<host>:<external-port>
 	e.Logger.Fatal(e.Start(":3030"))
 }

@@ -1,0 +1,31 @@
+version: '3.8'
+
+services:
+  mongo:
+    image: mongo
+    container_name: mongodb
+    restart: always
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_DATABASE: exercise-2
+      MONGO_INITDB_ROOT_USERNAME: root
+      MONGO_INITDB_ROOT_PASSWORD: rootpass
+    volumes:
+      - mongo_data:/data/db
+      - ./init-mongo.js:/docker-entrypoint-initdb.d/init-mongo.js:ro
+
+  app:
+    build: .
+    container_name: bookstore-app
+    ports:
+      - "3030:3030"
+    depends_on:
+      - mongo
+    environment:
+      DATABASE_URI: mongodb://bookuser:bookpass@mongo:27017/exercise-2?authSource=exercise-2
+    volumes:
+      - .:/app
+
+volumes:
+  mongo_data:
