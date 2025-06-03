@@ -11,7 +11,7 @@ RUN go mod download
 COPY . .
 
 # Force GOOS=linux and GOARCH=amd64 to produce a Linux-compatible binary
-RUN GOOS=linux GOARCH=amd64 go build -o main ./cmd
+RUN GOOS=linux GOARCH=amd64 go build -o main ./cmd/main.go
 
 # Stage 2: Run the application
 FROM debian:bookworm-slim

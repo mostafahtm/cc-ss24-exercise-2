@@ -25,7 +25,7 @@ services:
     environment:
       DATABASE_URI: mongodb://bookuser:bookpass@mongo:27017/exercise-2?authSource=exercise-2
     volumes:
-      - .:/app
+      - .:/app/source
 
 volumes:
   mongo_data:
